@@ -101,7 +101,7 @@
 
   <div id="chart-area">
     <div class="controls">
-      <input id="search" type="text" placeholder="Find team #" />
+      <input id="search" type="text" placeholder="Find teams (e.g. 254, 1114, 118)" />
       <button id="clear-btn">Clear</button>
       <div class="legend">
         <div class="legend-item"><div class="legend-swatch" style="background:#185FA5"></div>Rank 1–8</div>
@@ -150,7 +150,7 @@ if (eventKey) {
   initChart(eventKey);
 }
 
-let pinnedTeam   = null;
+let pinnedTeams  = new Set();
 let pathEls      = {};
 let labelEls     = {};
 let allTeams     = [];
@@ -176,15 +176,19 @@ function finalColor(rank) {
 }
 
 function applyVisuals(hoveredTeam) {
-  const active = pinnedTeam || hoveredTeam;
+  const activeTeams = hoveredTeam
+    ? new Set([...pinnedTeams, hoveredTeam])
+    : pinnedTeams;
+  const hasActive = activeTeams.size > 0;
+
   for (const team of allTeams) {
     const p = pathEls[team];
     const l = labelEls[team];
     if (!p) continue;
     const rank  = finalRankMap[team] || allTeams.length;
     const color = finalColor(rank);
-    if (active) {
-      if (team === active) {
+    if (hasActive) {
+      if (activeTeams.has(team)) {
         p.setAttribute("stroke", color);
         p.setAttribute("stroke-width", "2.5");
         p.setAttribute("opacity", "1");
@@ -202,12 +206,17 @@ function applyVisuals(hoveredTeam) {
       if (l) { l.style.display = "block"; l.setAttribute("fill", color); l.setAttribute("font-size", "10"); l.setAttribute("opacity", "1"); }
     }
   }
-  if (active) {
-    const rank = finalRankMap[active] || "?";
-    infoEl.textContent = `Team ${active} · Final rank #${rank}` +
-      (pinnedTeam ? " · Click chart background to unpin" : " · Click to pin");
+  if (pinnedTeams.size > 0) {
+    const teams = [...pinnedTeams].sort((a, b) => a - b);
+    const summary = teams.length <= 3
+      ? teams.map(t => `${t} (rank #${finalRankMap[t] || "?"})`).join(", ")
+      : `${teams.length} teams selected`;
+    infoEl.textContent = `${summary} · Click chart background to clear`;
+  } else if (hoveredTeam) {
+    const rank = finalRankMap[hoveredTeam] || "?";
+    infoEl.textContent = `Team ${hoveredTeam} · Final rank #${rank} · Click to pin`;
   } else {
-    infoEl.textContent = "Click a line to pin a team · Hover to preview · Search by team number above";
+    infoEl.textContent = "Click a line to pin a team · Hover to preview · Search by team numbers (comma-separated)";
   }
 }
 
@@ -311,7 +320,11 @@ function buildChart(rankHistory, maxMatch) {
     path.addEventListener("mouseleave", () => applyVisuals(null));
     path.addEventListener("click", e => {
       e.stopPropagation();
-      pinnedTeam = pinnedTeam === team ? null : team;
+      if (pinnedTeams.has(team)) {
+        pinnedTeams.delete(team);
+      } else {
+        pinnedTeams.add(team);
+      }
       applyVisuals(null);
     });
 
@@ -329,23 +342,31 @@ function buildChart(rankHistory, maxMatch) {
     labelEls[team] = lbl;
   }
 
-  // Click background to unpin
-  svg.addEventListener("click", () => { pinnedTeam = null; applyVisuals(null); });
+  // Click background to clear all
+  svg.addEventListener("click", () => { pinnedTeams.clear(); applyVisuals(null); });
 
   svgWrap.innerHTML = "";
   svgWrap.appendChild(svg);
 }
 
-// Search
+// Search - supports comma-separated team numbers
 searchEl.addEventListener("input", () => {
   const val = searchEl.value.trim();
-  if (!val) { pinnedTeam = null; applyVisuals(null); return; }
-  const match = allTeams.find(t => t === val || t.includes(val));
-  if (match) { pinnedTeam = match; applyVisuals(null); }
+  if (!val) { pinnedTeams.clear(); applyVisuals(null); return; }
+
+  const queries = val.split(",").map(s => s.trim()).filter(s => s);
+  pinnedTeams.clear();
+
+  for (const query of queries) {
+    const match = allTeams.find(t => t === query || t.includes(query));
+    if (match) pinnedTeams.add(match);
+  }
+
+  applyVisuals(null);
 });
 clearBtn.addEventListener("click", () => {
   searchEl.value = "";
-  pinnedTeam = null;
+  pinnedTeams.clear();
   applyVisuals(null);
 });
 
