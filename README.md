@@ -9,7 +9,7 @@ Charts show each team's rank after every qualification match — analagous to th
 Navigate to the root to enter an event key, or link directly to a chart:
 
 ```
-https://lapcharts.popcornpenguins.com/?event=2026cancmp
+https://qualscharts.popcornpenguins.com/?event=2026cancmp
 ```
 
 ## Running locally
@@ -26,14 +26,6 @@ For development with auto-restart on file changes:
 ```bash
 TBA_API_KEY=your_key_here npm run dev
 ```
-
-## Deploying to Railway
-
-1. Push this repo to GitHub.
-2. In Railway, create a new project → **Deploy from GitHub repo**.
-3. Add an environment variable: `TBA_API_KEY` = your TBA API key.
-4. Railway will detect Node.js automatically and run `npm start`.
-5. Add your custom domain (`lapcharts.popcornpenguins.com`) in Railway's Settings → Networking.
 
 ## How ranking is calculated
 
