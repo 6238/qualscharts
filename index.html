@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FRC Lap Charts</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f8f8f6;
+    color: #1a1a1a;
+    min-height: 100vh;
+  }
+
+  /* ── Landing ── */
+  #landing {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 2rem;
+    gap: 1.5rem;
+  }
+  #landing h1 { font-size: 28px; font-weight: 500; }
+  #landing p  { font-size: 14px; color: #666; max-width: 380px; text-align: center; }
+  .landing-form {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .landing-form input {
+    font-size: 15px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    background: #fff;
+    width: 200px;
+  }
+  .landing-form button {
+    font-size: 14px;
+    padding: 8px 18px;
+    border-radius: 8px;
+    border: 1px solid #bbb;
+    background: #fff;
+    cursor: pointer;
+  }
+  .landing-form button:hover { background: #f0f0ee; }
+  .examples { font-size: 12px; color: #999; }
+  .examples code { background: #eee; padding: 1px 5px; border-radius: 4px; }
+
+  /* ── Chart page ── */
+  #chartpage { display: none; padding: 1.25rem 1.5rem; }
+  #chartpage h1 { font-size: 18px; font-weight: 500; }
+  .subtitle { font-size: 13px; color: #666; margin-bottom: 1rem; }
+  a.back { font-size: 12px; color: #888; text-decoration: none; margin-left: 12px; }
+  a.back:hover { color: #333; }
+
+  #status { font-size: 14px; color: #555; padding: 2rem 0; }
+  #error  { color: #a32d2d; background: #fcebeb; border-radius: 8px; padding: 12px 16px; font-size: 13px; display: none; margin-bottom: 1rem; }
+  #chart-area { display: none; }
+
+  .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .controls input  { font-size: 13px; padding: 5px 10px; border-radius: 6px; border: 1px solid #ccc; background: #fff; width: 130px; }
+  .controls button { font-size: 12px; padding: 5px 12px; border-radius: 6px; border: 1px solid #bbb; background: #fff; cursor: pointer; }
+  .controls button:hover { background: #f0f0ee; }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: #666; }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-swatch { width: 20px; height: 3px; border-radius: 2px; }
+
+  #info { margin-top: 8px; font-size: 12px; color: #666; min-height: 18px; }
+  #svg-wrap { width: 100%; overflow-x: auto; margin-top: 4px; }
+  svg { display: block; }
+</style>
+</head>
+<body>
+
+<!-- Landing: shown when no ?event= param -->
+<div id="landing">
+  <h1>FRC Lap Charts</h1>
+  <p>Enter a The Blue Alliance event key to generate a qualification ranking chart.</p>
+  <div class="landing-form">
+    <input id="event-input" type="text" placeholder="e.g. 2026cancmp" spellcheck="false" />
+    <button id="go-btn">View chart</button>
+  </div>
+  <p class="examples">
+    Examples: <code>2026cancmp</code> &nbsp; <code>2026caroc</code> &nbsp; <code>2026txhou</code>
+  </p>
+</div>
+
+<!-- Chart page -->
+<div id="chartpage">
+  <h1 id="page-title">Loading…<a class="back" href="/">← all events</a></h1>
+  <p class="subtitle" id="event-label"></p>
+
+  <div id="error"></div>
+  <div id="status">Fetching match data…</div>
+
+  <div id="chart-area">
+    <div class="controls">
+      <input id="search" type="text" placeholder="Find team #" />
+      <button id="clear-btn">Clear</button>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#185FA5"></div>Rank 1–8</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#3B6D11"></div>9–16</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#BA7517"></div>17–24</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#888780"></div>25+</div>
+      </div>
+    </div>
+    <div id="svg-wrap"></div>
+    <div id="info">Click a line to pin a team · Hover to preview · Search by team number above</div>
+  </div>
+</div>
+
+<script>
+// ── Routing ─────────────────────────────────────────────────────────────────
+
+const params    = new URLSearchParams(location.search);
+const eventKey  = (params.get("event") || "").trim().toLowerCase();
+
+if (!eventKey) {
+  document.getElementById("landing").style.display = "flex";
+  document.getElementById("go-btn").addEventListener("click", () => {
+    const val = document.getElementById("event-input").value.trim();
+    if (val) location.href = "/?event=" + encodeURIComponent(val);
+  });
+  document.getElementById("event-input").addEventListener("keydown", e => {
+    if (e.key === "Enter") document.getElementById("go-btn").click();
+  });
+} else {
+  document.getElementById("landing").style.display    = "none";
+  document.getElementById("chartpage").style.display  = "block";
+  initChart(eventKey);
+}
+
+// ── Chart ────────────────────────────────────────────────────────────────────
+
+const statusEl   = document.getElementById("status");
+const errorEl    = document.getElementById("error");
+const chartArea  = document.getElementById("chart-area");
+const svgWrap    = document.getElementById("svg-wrap");
+const infoEl     = document.getElementById("info");
+const searchEl   = document.getElementById("search");
+const clearBtn   = document.getElementById("clear-btn");
+const pageTitle  = document.getElementById("page-title");
+const eventLabel = document.getElementById("event-label");
+
+let pinnedTeam   = null;
+let pathEls      = {};
+let labelEls     = {};
+let allTeams     = [];
+let finalRankMap = {};
+
+function showError(msg) {
+  statusEl.style.display = "none";
+  errorEl.style.display  = "block";
+  errorEl.textContent    = "Error: " + msg;
+}
+
+async function tba(path) {
+  const r = await fetch("/api/tba/" + path);
+  if (!r.ok) throw new Error(`API error ${r.status} for ${path}`);
+  return r.json();
+}
+
+function finalColor(rank) {
+  if (rank <= 8)  return "#185FA5";
+  if (rank <= 16) return "#3B6D11";
+  if (rank <= 24) return "#BA7517";
+  return "#888780";
+}
+
+function applyVisuals(hoveredTeam) {
+  const active = pinnedTeam || hoveredTeam;
+  for (const team of allTeams) {
+    const p = pathEls[team];
+    const l = labelEls[team];
+    if (!p) continue;
+    const rank  = finalRankMap[team] || allTeams.length;
+    const color = finalColor(rank);
+    if (active) {
+      if (team === active) {
+        p.setAttribute("stroke", color);
+        p.setAttribute("stroke-width", "2.5");
+        p.setAttribute("opacity", "1");
+        if (l) { l.style.display = "block"; l.setAttribute("fill", color); l.setAttribute("font-size", "11"); l.setAttribute("opacity", "1"); }
+      } else {
+        p.setAttribute("stroke", "#aaa");
+        p.setAttribute("stroke-width", "0.6");
+        p.setAttribute("opacity", "0.25");
+        if (l) { l.style.display = "block"; l.setAttribute("fill", "#bbb"); l.setAttribute("font-size", "10"); l.setAttribute("opacity", "0.3"); }
+      }
+    } else {
+      p.setAttribute("stroke", color);
+      p.setAttribute("stroke-width", "1.3");
+      p.setAttribute("opacity", "1");
+      if (l) { l.style.display = "block"; l.setAttribute("fill", color); l.setAttribute("font-size", "10"); l.setAttribute("opacity", "1"); }
+    }
+  }
+  if (active) {
+    const rank = finalRankMap[active] || "?";
+    infoEl.textContent = `Team ${active} · Final rank #${rank}` +
+      (pinnedTeam ? " · Click chart background to unpin" : " · Click to pin");
+  } else {
+    infoEl.textContent = "Click a line to pin a team · Hover to preview · Search by team number above";
+  }
+}
+
+function buildChart(rankHistory, maxMatch) {
+  const total = allTeams.length;
+  const PAD   = { top: 24, right: 55, bottom: 48, left: 52 };
+  const W     = Math.max(900, maxMatch * 11 + PAD.left + PAD.right + 40);
+  const H     = Math.max(480, total * 13 + PAD.top + PAD.bottom);
+  const cW    = W - PAD.left - PAD.right;
+  const cH    = H - PAD.top - PAD.bottom;
+
+  const xS = n => (n / maxMatch) * cW;
+  const yS = r => ((r - 1) / (total - 1)) * cH;
+
+  const NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  const svg = el("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    width: W, height: H,
+    role: "img",
+    "aria-label": `FRC qualification ranking lap chart, ${total} teams over ${maxMatch} matches`
+  });
+
+  const g = el("g", { transform: `translate(${PAD.left},${PAD.top})` }, svg);
+
+  // Background
+  el("rect", { x: 0, y: 0, width: cW, height: cH, fill: "#fff", stroke: "#ccc", "stroke-width": "0.5" }, g);
+
+  // Vertical grid lines every 5 matches
+  for (let n = 5; n <= maxMatch; n += 5) {
+    el("line", { x1: xS(n).toFixed(1), y1: 0, x2: xS(n).toFixed(1), y2: cH,
+      stroke: "#e8e8e8", "stroke-width": "0.5" }, g);
+  }
+  // Horizontal rank threshold lines
+  for (const r of [1, 8, 16, 24]) {
+    if (r > total) continue;
+    el("line", { x1: 0, y1: yS(r).toFixed(1), x2: cW, y2: yS(r).toFixed(1),
+      stroke: r === 1 ? "#bbb" : "#e0e0e0", "stroke-width": "0.5",
+      "stroke-dasharray": r === 1 ? "none" : "4,3" }, g);
+  }
+
+  // Y axis
+  const yTicks = [1];
+  for (let r = 5; r <= total; r += 5) yTicks.push(r);
+  if (!yTicks.includes(total)) yTicks.push(total);
+  for (const r of yTicks) {
+    el("line", { x1: -4, y1: yS(r).toFixed(1), x2: 0, y2: yS(r).toFixed(1), stroke: "#999", "stroke-width": "0.5" }, g);
+    const t = el("text", { x: -8, y: (yS(r) + 4).toFixed(1), "text-anchor": "end", "font-size": "10", fill: "#888" }, g);
+    t.textContent = r;
+  }
+  const yLbl = el("text", {
+    x: -(PAD.left - 14), y: (cH / 2).toFixed(1),
+    "text-anchor": "middle", "font-size": "11", fill: "#666",
+    transform: `rotate(-90, ${-(PAD.left - 14)}, ${(cH / 2).toFixed(1)})`
+  }, g);
+  yLbl.textContent = "Rank";
+
+  // X axis
+  const xTicks = [1];
+  for (let n = 10; n <= maxMatch; n += 10) xTicks.push(n);
+  if (!xTicks.includes(maxMatch)) xTicks.push(maxMatch);
+  for (const n of xTicks) {
+    el("line", { x1: xS(n).toFixed(1), y1: cH, x2: xS(n).toFixed(1), y2: cH + 4, stroke: "#999", "stroke-width": "0.5" }, g);
+    const t = el("text", { x: xS(n).toFixed(1), y: cH + 16, "text-anchor": "middle", "font-size": "10", fill: "#888" }, g);
+    t.textContent = n;
+  }
+  const xLbl = el("text", { x: (cW / 2).toFixed(1), y: cH + 38, "text-anchor": "middle", "font-size": "11", fill: "#666" }, g);
+  xLbl.textContent = "Qualification match number";
+
+  // Team paths — draw low finishers first so top finishers render on top
+  const sorted = [...allTeams].sort((a, b) =>
+    (finalRankMap[b] || 9999) - (finalRankMap[a] || 9999)
+  );
+
+  pathEls  = {};
+  labelEls = {};
+
+  for (const team of sorted) {
+    const pts = rankHistory[team];
+    if (!pts || pts.length < 1) continue;
+    const d = pts.map((p, i) =>
+      `${i === 0 ? "M" : "L"} ${xS(p.matchNum).toFixed(1)} ${yS(p.rank).toFixed(1)}`
+    ).join(" ");
+
+    const rank  = finalRankMap[team] || total;
+    const color = finalColor(rank);
+
+    const path = el("path", {
+      d, fill: "none", stroke: color,
+      "stroke-width": "1.3", "stroke-linejoin": "round",
+      style: "cursor:pointer;"
+    }, g);
+
+    path.addEventListener("mouseenter", () => applyVisuals(team));
+    path.addEventListener("mouseleave", () => applyVisuals(null));
+    path.addEventListener("click", e => {
+      e.stopPropagation();
+      pinnedTeam = pinnedTeam === team ? null : team;
+      applyVisuals(null);
+    });
+
+    // End-of-line label — always visible
+    const last = pts[pts.length - 1];
+    const lbl  = el("text", {
+      x: (xS(last.matchNum) + 5).toFixed(1),
+      y: (yS(last.rank) + 4).toFixed(1),
+      "font-size": "10", "font-weight": "500",
+      fill: color, style: "pointer-events:none;"
+    }, g);
+    lbl.textContent = team;
+
+    pathEls[team]  = path;
+    labelEls[team] = lbl;
+  }
+
+  // Click background to unpin
+  svg.addEventListener("click", () => { pinnedTeam = null; applyVisuals(null); });
+
+  svgWrap.innerHTML = "";
+  svgWrap.appendChild(svg);
+}
+
+// Search
+searchEl.addEventListener("input", () => {
+  const val = searchEl.value.trim();
+  if (!val) { pinnedTeam = null; applyVisuals(null); return; }
+  const match = allTeams.find(t => t === val || t.includes(val));
+  if (match) { pinnedTeam = match; applyVisuals(null); }
+});
+clearBtn.addEventListener("click", () => {
+  searchEl.value = "";
+  pinnedTeam = null;
+  applyVisuals(null);
+});
+
+// Main
+async function initChart(event) {
+  try {
+    statusEl.textContent = "Fetching event info…";
+    const [eventInfo, matches] = await Promise.all([
+      tba(`event/${event}`),
+      tba(`event/${event}/matches`)
+    ]);
+
+    pageTitle.innerHTML = `${eventInfo.name}<a class="back" href="/">← change event</a>`;
+    eventLabel.textContent =
+      `${eventInfo.year} · ${eventInfo.location_name || ""} · event key: ${event}`;
+
+    statusEl.textContent = "Processing matches…";
+    const quals = matches
+      .filter(m => m.comp_level === "qm" && m.score_breakdown)
+      .sort((a, b) => a.match_number - b.match_number);
+
+    if (quals.length === 0) {
+      showError("No completed qualification matches found for this event yet.");
+      return;
+    }
+
+    // Collect all teams
+    const teamSet = new Set();
+    for (const m of quals) {
+      for (const t of m.alliances.red.team_keys)  teamSet.add(t.replace("frc", ""));
+      for (const t of m.alliances.blue.team_keys) teamSet.add(t.replace("frc", ""));
+    }
+    allTeams = [...teamSet];
+
+    // Running RP totals
+    const running = {};
+    for (const t of allTeams) running[t] = { rp: 0, matches: 0 };
+
+    const snapshots = {};
+    const maxMatch  = quals[quals.length - 1].match_number;
+
+    // Log score breakdown fields once for debugging
+    const sb0 = quals[0].score_breakdown;
+    console.log("Score breakdown keys (red):", Object.keys(sb0?.red || {}));
+
+    for (const match of quals) {
+      const sb        = match.score_breakdown;
+      const redTeams  = match.alliances.red.team_keys.map(k => k.replace("frc", ""));
+      const blueTeams = match.alliances.blue.team_keys.map(k => k.replace("frc", ""));
+      const redRP     = sb.red?.rp  ?? sb.red?.rankingPoints  ?? 0;
+      const blueRP    = sb.blue?.rp ?? sb.blue?.rankingPoints ?? 0;
+
+      for (const t of redTeams)  { running[t].rp += redRP;  running[t].matches += 1; }
+      for (const t of blueTeams) { running[t].rp += blueRP; running[t].matches += 1; }
+
+      // Rank all teams at this snapshot
+      const played    = allTeams.filter(t => running[t].matches > 0)
+        .sort((a, b) => (running[b].rp / running[b].matches) - (running[a].rp / running[a].matches));
+      const notPlayed = allTeams.filter(t => running[t].matches === 0);
+
+      snapshots[match.match_number] = {};
+      played.forEach((t, i)    => { snapshots[match.match_number][t] = i + 1; });
+      notPlayed.forEach((t, i) => { snapshots[match.match_number][t] = played.length + i + 1; });
+    }
+
+    finalRankMap = snapshots[maxMatch] || {};
+
+    // Build per-team rank history
+    const rankHistory = {};
+    for (const team of allTeams) {
+      rankHistory[team] = Object.entries(snapshots)
+        .map(([n, ranks]) => ({ matchNum: parseInt(n), rank: ranks[team] ?? allTeams.length }))
+        .sort((a, b) => a.matchNum - b.matchNum);
+    }
+
+    statusEl.style.display  = "none";
+    buildChart(rankHistory, maxMatch);
+    chartArea.style.display = "block";
+
+    console.log(`Loaded: ${quals.length} matches, ${allTeams.length} teams`);
+  } catch (e) {
+    showError(e.message);
+    console.error(e);
+  }
+}
+</script>
+</body>
+</html>
