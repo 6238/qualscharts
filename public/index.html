@@ -322,9 +322,9 @@ function buildChart(rankHistory, maxMatch) {
       style: "cursor:pointer;"
     }, g);
 
-    path.addEventListener("mouseenter", () => applyVisuals(team));
-    path.addEventListener("mouseleave", () => applyVisuals(null));
-    path.addEventListener("click", e => {
+    const onEnter = () => applyVisuals(team);
+    const onLeave = () => applyVisuals(null);
+    const onClick = e => {
       e.stopPropagation();
       if (pinnedTeams.has(team)) {
         pinnedTeams.delete(team);
@@ -332,17 +332,25 @@ function buildChart(rankHistory, maxMatch) {
         pinnedTeams.add(team);
       }
       applyVisuals(null);
-    });
+    };
 
-    // End-of-line label — always visible
+    path.addEventListener("mouseenter", onEnter);
+    path.addEventListener("mouseleave", onLeave);
+    path.addEventListener("click", onClick);
+
+    // End-of-line label — always visible and interactive
     const last = pts[pts.length - 1];
     const lbl  = el("text", {
       x: (xS(last.matchNum) + 5).toFixed(1),
       y: (yS(last.rank) + 4).toFixed(1),
       "font-size": "10", "font-weight": "500",
-      fill: color, style: "pointer-events:none;"
+      fill: color, style: "cursor:pointer;"
     }, g);
     lbl.textContent = teamNames[team] || team;
+
+    lbl.addEventListener("mouseenter", onEnter);
+    lbl.addEventListener("mouseleave", onLeave);
+    lbl.addEventListener("click", onClick);
 
     pathEls[team]  = path;
     labelEls[team] = lbl;
