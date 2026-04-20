@@ -102,7 +102,7 @@
 
   <div id="chart-area">
     <div class="controls">
-      <input id="search" type="text" placeholder="Find teams (e.g. 254, 1114, 118)" />
+      <input id="search" type="text" placeholder="Find teams (e.g. 254, Popcorn, 1114)" />
       <button id="clear-btn">Clear</button>
       <div class="legend">
         <div class="legend-item"><div class="legend-swatch" style="background:#185FA5"></div>Rank 1–8</div>
@@ -156,6 +156,7 @@ let pathEls      = {};
 let labelEls     = {};
 let allTeams     = [];
 let finalRankMap = {};
+let teamNames    = {};
 
 function showError(msg) {
   statusEl.style.display = "none";
@@ -210,20 +211,24 @@ function applyVisuals(hoveredTeam) {
   if (pinnedTeams.size > 0) {
     const teams = [...pinnedTeams].sort((a, b) => a - b);
     const summary = teams.length <= 3
-      ? teams.map(t => `${t} (rank #${finalRankMap[t] || "?"})`).join(", ")
+      ? teams.map(t => {
+          const name = teamNames[t] || t;
+          return `${name} (rank #${finalRankMap[t] || "?"})`;
+        }).join(", ")
       : `${teams.length} teams selected`;
     infoEl.textContent = `${summary} · Click chart background to clear`;
   } else if (hoveredTeam) {
     const rank = finalRankMap[hoveredTeam] || "?";
-    infoEl.textContent = `Team ${hoveredTeam} · Final rank #${rank} · Click to pin`;
+    const name = teamNames[hoveredTeam] || hoveredTeam;
+    infoEl.textContent = `${name} · Final rank #${rank} · Click to pin`;
   } else {
-    infoEl.textContent = "Click a line to pin a team · Hover to preview · Search by team numbers (comma-separated)";
+    infoEl.textContent = "Click a line to pin a team · Hover to preview · Search by team number or name";
   }
 }
 
 function buildChart(rankHistory, maxMatch) {
   const total = allTeams.length;
-  const PAD   = { top: 24, right: 55, bottom: 48, left: 52 };
+  const PAD   = { top: 24, right: 200, bottom: 48, left: 52 };
   const W     = Math.max(900, maxMatch * 11 + PAD.left + PAD.right + 40);
   const H     = Math.max(480, total * 13 + PAD.top + PAD.bottom);
   const cW    = W - PAD.left - PAD.right;
@@ -337,7 +342,7 @@ function buildChart(rankHistory, maxMatch) {
       "font-size": "10", "font-weight": "500",
       fill: color, style: "pointer-events:none;"
     }, g);
-    lbl.textContent = team;
+    lbl.textContent = teamNames[team] || team;
 
     pathEls[team]  = path;
     labelEls[team] = lbl;
@@ -350,16 +355,21 @@ function buildChart(rankHistory, maxMatch) {
   svgWrap.appendChild(svg);
 }
 
-// Search - supports comma-separated team numbers
+// Search - supports comma-separated team numbers or names
 searchEl.addEventListener("input", () => {
   const val = searchEl.value.trim();
   if (!val) { pinnedTeams.clear(); applyVisuals(null); return; }
 
-  const queries = val.split(",").map(s => s.trim()).filter(s => s);
+  const queries = val.split(",").map(s => s.trim().toLowerCase()).filter(s => s);
   pinnedTeams.clear();
 
   for (const query of queries) {
-    const match = allTeams.find(t => t === query || t.includes(query));
+    const match = allTeams.find(t => {
+      const name = teamNames[t] || "";
+      return t === query ||
+             t.includes(query) ||
+             name.toLowerCase().includes(query);
+    });
     if (match) pinnedTeams.add(match);
   }
 
@@ -375,14 +385,23 @@ clearBtn.addEventListener("click", () => {
 async function initChart(event) {
   try {
     statusEl.textContent = "Fetching event info…";
-    const [eventInfo, matches] = await Promise.all([
+    const [eventInfo, matches, teams] = await Promise.all([
       tba(`event/${event}`),
-      tba(`event/${event}/matches`)
+      tba(`event/${event}/matches`),
+      tba(`event/${event}/teams`)
     ]);
 
     pageTitle.innerHTML = `${eventInfo.name}<a class="back" href="/">← change event</a>`;
     eventLabel.textContent =
       `${eventInfo.year} · ${eventInfo.location_name || ""} · event key: ${event}`;
+
+    // Build team name map
+    teamNames = {};
+    for (const t of teams) {
+      const num = t.key.replace("frc", "");
+      const nickname = t.nickname || "";
+      teamNames[num] = `${num} ${nickname}`.trim();
+    }
 
     statusEl.textContent = "Processing matches…";
     const quals = matches
