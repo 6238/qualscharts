@@ -429,12 +429,22 @@ async function initChart(event) {
     }
     allTeams = [...teamSet];
 
-    // Running RP totals
+    // Running totals - track RP and tiebreakers
     const running = {};
-    for (const t of allTeams) running[t] = { rp: 0, matches: 0 };
+    for (const t of allTeams) {
+      running[t] = {
+        rp: 0,
+        matches: 0,
+        matchPoints: 0,      // alliance score minus fouls
+        autoFuel: 0,         // 2026 tiebreaker
+        towerPoints: 0,      // 2026 tiebreaker
+        randomTiebreaker: Math.random() // 5th tiebreaker
+      };
+    }
 
     const snapshots = {};
     const maxMatch  = quals[quals.length - 1].match_number;
+    const year      = eventInfo.year;
 
     // Log score breakdown fields once for debugging
     const sb0 = quals[0].score_breakdown;
@@ -447,12 +457,70 @@ async function initChart(event) {
       const redRP     = sb.red?.rp  ?? sb.red?.rankingPoints  ?? 0;
       const blueRP    = sb.blue?.rp ?? sb.blue?.rankingPoints ?? 0;
 
-      for (const t of redTeams)  { running[t].rp += redRP;  running[t].matches += 1; }
-      for (const t of blueTeams) { running[t].rp += blueRP; running[t].matches += 1; }
+      // Calculate match points (alliance score minus fouls)
+      const redTotal  = match.alliances.red.score || 0;
+      const blueTotal = match.alliances.blue.score || 0;
+      const redFouls  = sb.red?.foulPoints || 0;
+      const blueFouls = sb.blue?.foulPoints || 0;
+      const redMatch  = redTotal - blueFouls;   // red's score minus fouls they gave blue
+      const blueMatch = blueTotal - redFouls;
 
-      // Rank all teams at this snapshot
-      const played    = allTeams.filter(t => running[t].matches > 0)
-        .sort((a, b) => (running[b].rp / running[b].matches) - (running[a].rp / running[a].matches));
+      // 2026-specific tiebreakers
+      let redAutoFuel = 0, blueAutoFuel = 0;
+      let redTower = 0, blueTower = 0;
+      if (year === 2026) {
+        redAutoFuel  = sb.red?.autoFuelPoints || 0;
+        blueAutoFuel = sb.blue?.autoFuelPoints || 0;
+        redTower     = sb.red?.teleopTowerPoints || 0;
+        blueTower    = sb.blue?.teleopTowerPoints || 0;
+      }
+
+      for (const t of redTeams) {
+        running[t].rp += redRP;
+        running[t].matches += 1;
+        running[t].matchPoints += redMatch;
+        running[t].autoFuel += redAutoFuel;
+        running[t].towerPoints += redTower;
+      }
+      for (const t of blueTeams) {
+        running[t].rp += blueRP;
+        running[t].matches += 1;
+        running[t].matchPoints += blueMatch;
+        running[t].autoFuel += blueAutoFuel;
+        running[t].towerPoints += blueTower;
+      }
+
+      // Rank all teams at this snapshot using full tiebreaker cascade
+      const played = allTeams.filter(t => running[t].matches > 0)
+        .sort((a, b) => {
+          const aStats = running[a];
+          const bStats = running[b];
+          const aRP = aStats.rp / aStats.matches;
+          const bRP = bStats.rp / bStats.matches;
+
+          // 1st: Ranking Score (average RP)
+          if (aRP !== bRP) return bRP - aRP;
+
+          // 2nd: Average match points (excluding fouls)
+          const aMatch = aStats.matchPoints / aStats.matches;
+          const bMatch = bStats.matchPoints / bStats.matches;
+          if (aMatch !== bMatch) return bMatch - aMatch;
+
+          // 3rd: Average auto fuel (2026 only)
+          if (year === 2026) {
+            const aFuel = aStats.autoFuel / aStats.matches;
+            const bFuel = bStats.autoFuel / bStats.matches;
+            if (aFuel !== bFuel) return bFuel - aFuel;
+
+            // 4th: Average tower points (2026 only)
+            const aTower = aStats.towerPoints / aStats.matches;
+            const bTower = bStats.towerPoints / bStats.matches;
+            if (aTower !== bTower) return bTower - aTower;
+          }
+
+          // 5th: Random (simulated via pre-generated random value)
+          return bStats.randomTiebreaker - aStats.randomTiebreaker;
+        });
       const notPlayed = allTeams.filter(t => running[t].matches === 0);
 
       snapshots[match.match_number] = {};

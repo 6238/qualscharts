@@ -31,4 +31,5 @@ TBA_API_KEY=your_key_here npm run dev
 
 After each qualification match, all teams are ranked by their **average ranking points (RP) per match played** at that point in the event. Teams that have not yet played any matches are shown below all teams that have. This matches the FRC ranking methodology.
 
-Tiebreaking within equal average RP is not currently applied (FRC tiebreakers require additional match score fields). For the purposes of the chart the order of tied teams is stable but arbitrary.
+Tiebreaking within equal average RP is only correct for 2026. For other years, it uses only ranking points and total points.
+
