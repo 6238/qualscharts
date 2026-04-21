@@ -226,7 +226,7 @@ function applyVisuals(hoveredTeam) {
   }
 }
 
-function buildChart(rankHistory, maxMatch) {
+function buildChart(rankHistory, maxMatch, teamMatchesPlayed) {
   const total = allTeams.length;
   const PAD   = { top: 24, right: 200, bottom: 48, left: 52 };
   const W     = Math.max(900, maxMatch * 11 + PAD.left + PAD.right + 40);
@@ -338,6 +338,21 @@ function buildChart(rankHistory, maxMatch) {
     path.addEventListener("mouseleave", onLeave);
     path.addEventListener("click", onClick);
 
+    // Add dots at matches where this team actually played
+    const playedMatches = teamMatchesPlayed[team] || [];
+    for (const matchNum of playedMatches) {
+      const pt = pts.find(p => p.matchNum === matchNum);
+      if (pt) {
+        const dot = el("circle", {
+          cx: xS(pt.matchNum).toFixed(1),
+          cy: yS(pt.rank).toFixed(1),
+          r: "2.5",
+          fill: color,
+          style: "pointer-events:none;"
+        }, g);
+      }
+    }
+
     // End-of-line label — always visible and interactive
     const last = pts[pts.length - 1];
     const lbl  = el("text", {
@@ -431,6 +446,7 @@ async function initChart(event) {
 
     // Running totals - track RP and tiebreakers
     const running = {};
+    const teamMatchesPlayed = {}; // track which match numbers each team played
     for (const t of allTeams) {
       running[t] = {
         rp: 0,
@@ -440,6 +456,7 @@ async function initChart(event) {
         towerPoints: 0,      // 2026 tiebreaker
         randomTiebreaker: Math.random() // 5th tiebreaker
       };
+      teamMatchesPlayed[t] = [];
     }
 
     const snapshots = {};
@@ -481,6 +498,7 @@ async function initChart(event) {
         running[t].matchPoints += redMatch;
         running[t].autoFuel += redAutoFuel;
         running[t].towerPoints += redTower;
+        teamMatchesPlayed[t].push(match.match_number);
       }
       for (const t of blueTeams) {
         running[t].rp += blueRP;
@@ -488,6 +506,7 @@ async function initChart(event) {
         running[t].matchPoints += blueMatch;
         running[t].autoFuel += blueAutoFuel;
         running[t].towerPoints += blueTower;
+        teamMatchesPlayed[t].push(match.match_number);
       }
 
       // Rank all teams at this snapshot using full tiebreaker cascade
@@ -539,7 +558,7 @@ async function initChart(event) {
     }
 
     statusEl.style.display  = "none";
-    buildChart(rankHistory, maxMatch);
+    buildChart(rankHistory, maxMatch, teamMatchesPlayed);
     chartArea.style.display = "block";
 
     console.log(`Loaded: ${quals.length} matches, ${allTeams.length} teams`);
